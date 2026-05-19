@@ -182,12 +182,13 @@ export const FS_RULES: FsRule[] = [
   {
     id: 'write_git_config_hooks',
     name: 'Git Config Core Hooks Write',
-    description: 'Detected modification of git config, potentially to alter core.hooksPath for persistence',
+    description:
+      'Detected git config pointing core.hooksPath at .githooks (DPRK Contagious Interview — arms malicious hooks after clone)',
     type: FsRuleType.WRITE,
     target: Target.FILESYSTEM,
     severity: SeverityLevel.HIGH,
     pathPattern: /[/\\]\.git[/\\]config$/i,
-    contentPattern: /hookspath/i,
+    contentPattern: /hookspath\s*=\s*["']?\.githooks\b/i,
     operations: ['write', 'append'],
     confidence: 0.9,
   },

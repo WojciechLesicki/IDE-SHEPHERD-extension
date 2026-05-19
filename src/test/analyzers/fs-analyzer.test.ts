@@ -476,11 +476,18 @@ suite('FsAnalyzer Tests', () => {
     });
 
     test('should detect modification of core.hooksPath in .git/config', () => {
-      fsStub.returns('[core]\n\thooksPath = .husky\n');
+      fsStub.returns('[core]\n\thooksPath = .githooks\n');
       const r = analyzer.analyze(makeEvent('/home/user/project/.git/config', 'write'));
 
       expect(r!.verdict.allowed).to.be.false;
       expect(r!.securityEvent!.iocs[0].rule).to.include('Git Config Core Hooks Write');
+    });
+
+    test('should NOT flag legitimate husky hooksPath in .git/config', () => {
+      fsStub.returns('[core]\n\thooksPath = .husky/_\n');
+      const r = analyzer.analyze(makeEvent('/home/user/project/.git/config', 'write'));
+
+      expect(r!.verdict.allowed).to.be.true;
     });
   });
 });

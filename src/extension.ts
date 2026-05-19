@@ -14,6 +14,7 @@ import { DatadogTelemetryService } from './lib/services/datadog/datadog-service'
 import { ExtensionChangeService } from './lib/services/extension-lifecycle-service';
 import { TaskScanner } from './monitor/analysis/task-analyzer';
 import { WelcomeService } from './lib/services/welcome-service';
+import { WorkspaceWatcher } from './monitor/analysis/workspace-watcher';
 
 export function activate(context: vscode.ExtensionContext) {
   try {
@@ -60,6 +61,9 @@ export function activate(context: vscode.ExtensionContext) {
     const taskScanner = new TaskScanner();
     taskScanner.activate(context);
     Logger.info('IDE Shepherd Extension: Task Scanner activated successfully');
+
+    // Activate the Workspace Watcher
+    WorkspaceWatcher.activate(context);
 
     const statusCommand = vscode.commands.registerCommand('ide-shepherd.showStatus', () => {
       IDEStatusService.showStatus();
