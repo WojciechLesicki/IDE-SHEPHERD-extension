@@ -18,9 +18,11 @@ export enum BlockedOperationType {
   TASK = 'task',
   FS_READ = 'fsRead',
   FS_WRITE = 'fsWrite',
+  GIT_HOOK = 'gitHook',
 }
 
 export class NotificationService {
+  private static activeModalPanel: vscode.WebviewPanel | undefined;
   static showSecurityEventNotification(securityEvent: SecurityEvent): void {
     const message = JSON.stringify(securityEvent.getSecurityEventData(), null, 2);
     vscode.window.showWarningMessage(message);
@@ -49,64 +51,71 @@ export class NotificationService {
           return 'Synchronous Process Execution';
         case BlockedOperationType.TASK:
           return 'Task Execution';
+        case BlockedOperationType.GIT_HOOK:
+          return 'Malicious Git Hook';
         default:
           return 'Operation';
       }
     };
 
-    const title = `!!! Security Policy: ${getOperationTitle(type)} Blocked`;
+    const isGitHook = type === BlockedOperationType.GIT_HOOK;
+    const title = isGitHook
+      ? `!!! Security Policy: ${getOperationTitle(type)} Detected`
+      : `!!! Security Policy: ${getOperationTitle(type)} Blocked`;
 
-    let content = `A(n) <bold>${type}</bold> operation has been <bold>BLOCKED</bold> by IDE Shepherd's security policy.<br><br>`;
+    let content: string;
+
+    if (isGitHook) {
+      content =
+        `IDE Shepherd <bold>DETECTED</bold> a malicious git hook in this workspace.<br><br>` +
+        `A suspicious hook may run if you commit or execute npm scripts in this repository.<br><br>`;
+    } else {
+      content = `A(n) <bold>${type}</bold> operation has been <bold>BLOCKED</bold> by IDE Shepherd's security policy.<br><br>`;
+    }
 
     // callerExtension is set when the blocked operation originates from a known extension
     // acting on a workspace target (e.g. vscode.tasks.executeTask). It takes precedence
     // over the generic workspace/extension routing in the SecurityEvent.
     const resolvedExtension = securityEvent.callerExtension ?? securityEvent.extension;
 
-    if (resolvedExtension) {
+    if (!isGitHook && resolvedExtension) {
       content += `<strong>EXTENSION:</strong> <bold>${resolvedExtension.id}</bold><br>`;
     } else if (securityEvent.workspace) {
       content += `<strong>WORKSPACE:</strong> <bold>${securityEvent.workspace.name}</bold><br>`;
-      content += `<strong>PATH:</strong> ${securityEvent.workspace.path}<br>`;
+      content += `<strong>PATH:</strong> ${securityEvent.workspace.path}<br><br>`;
     }
 
     if ([BlockedOperationType.REQUEST, BlockedOperationType.RESPONSE].includes(type)) {
       content += `<strong>URL:</strong> ${target}<br><br>`;
+    } else if (isGitHook) {
+      content += `<strong>FILE:</strong><br><code>${target}</code><br><br>`;
     } else {
       content += `<strong>COMMAND:</strong><br><code>${target}</code><br><br>`;
     }
 
     content += `<strong>SUMMARY:</strong><br>${securityEvent.getSummary().replace(/\n/g, '<br>')}<br><br>`;
-    content += `<strong>ACTION:</strong> The ${getOperationTitle(type).toLowerCase()} was automatically blocked to protect your workspace.`;
 
-    const identifier = resolvedExtension ? resolvedExtension.id : securityEvent.workspace?.path;
-    const isWorkspace = !resolvedExtension && !!securityEvent.workspace;
+    if (isGitHook) {
+      content +=
+        '<strong>ACTION:</strong> Review the hook file before committing. Use <em>Ignore &amp; Allow</em> only if you have audited this repository.';
+    } else {
+      content += `<strong>ACTION:</strong> The ${getOperationTitle(type).toLowerCase()} was automatically blocked to protect your workspace.`;
+    }
+
+    const identifier =
+      !isGitHook && resolvedExtension ? resolvedExtension.id : securityEvent.workspace?.path;
+    const isWorkspace = isGitHook ? !!securityEvent.workspace : !resolvedExtension && !!securityEvent.workspace;
 
     await this.showCustomModal(title, content, identifier, isWorkspace);
   }
 
-  /** Git-hook static scan / file watch — same webview modal as runtime blocking alerts. */
-  static async showMaliciousGitHookAlert(securityEvent: SecurityEvent, foundOnOpen: boolean): Promise<void> {
-    const timing = foundOnOpen ? 'found in your workspace upon opening' : 'just dropped in your workspace';
-
-    const title = '!!! Security Policy: Malicious Git Hook Detected';
-
-    let content =
-      `IDE Shepherd <bold>DETECTED</bold> a malicious Git hook that was ${timing}.<br><br>` +
-      `<strong>CRITICAL ALERT:</strong> A suspicious git hook may execute code if you commit or run npm scripts.<br><br>`;
-
-    if (securityEvent.workspace) {
-      content += `<strong>WORKSPACE:</strong> <bold>${securityEvent.workspace.name}</bold><br>`;
-      content += `<strong>PATH:</strong> ${securityEvent.workspace.path}<br><br>`;
-    }
-
-    const primaryIoC = securityEvent.getPrimaryIoC();
-    content += `<strong>FILE:</strong><br><code>${primaryIoC.finding}</code><br><br>`;
-    content += `<strong>SUMMARY:</strong><br>${securityEvent.getSummary().replace(/\n/g, '<br>')}<br><br>`;
-    content += `<strong>ACTION:</strong> Review the hook file before committing. Trust this workspace only if you have audited the repository.`;
-
-    const identifier = securityEvent.workspace?.path;
-    await this.showCustomModal(title, content, identifier, true);
+  /** Git-hook alerts — identical code path to other IDE Shepherd security modals. */
+  static async showMaliciousGitHookAlert(securityEvent: SecurityEvent, _foundOnOpen: boolean): Promise<void> {
+    await this.showSecurityBlockingInfo(
+      securityEvent.getPrimaryIoC().finding,
+      securityEvent,
+      BlockedOperationType.GIT_HOOK,
+    );
   }
 
   private static async showCustomModal(
@@ -116,10 +125,22 @@ export class NotificationService {
     isWorkspace: boolean = false,
   ): Promise<void> {
     return new Promise((resolve) => {
-      const panel = vscode.window.createWebviewPanel('customModal', title, vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-      });
+      if (this.activeModalPanel) {
+        this.activeModalPanel.dispose();
+        this.activeModalPanel = undefined;
+      }
+
+      const panel = vscode.window.createWebviewPanel(
+        'ideShepherd.securityModal',
+        title,
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+        { enableScripts: true, retainContextWhenHidden: false },
+      );
+      this.activeModalPanel = panel;
+      panel.iconPath = vscode.Uri.parse(
+        'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHRleHQgeT0iMTIiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiNlNTQzNDMiPvCfkqE8L3RleHQ+PC9zdmc+',
+      );
+      panel.reveal(vscode.ViewColumn.Active, false);
 
       // HTML content for the modal display
       panel.webview.html = `
@@ -257,6 +278,9 @@ export class NotificationService {
       // Handle messages from webview
       panel.webview.onDidReceiveMessage(async (message) => {
         if (message.command === 'dismiss') {
+          if (this.activeModalPanel === panel) {
+            this.activeModalPanel = undefined;
+          }
           panel.dispose();
           resolve();
         } else if (message.command === 'ignore' && identifier) {
@@ -289,6 +313,9 @@ export class NotificationService {
             Logger.error(`NotificationService: Failed to add to allow/trusted list`, error as Error);
             vscode.window.showErrorMessage(`Failed to add to allow/trusted list: ${error}`);
           }
+          if (this.activeModalPanel === panel) {
+            this.activeModalPanel = undefined;
+          }
           panel.dispose();
           resolve();
         }
@@ -296,6 +323,9 @@ export class NotificationService {
 
       // Handle panel disposal
       panel.onDidDispose(() => {
+        if (this.activeModalPanel === panel) {
+          this.activeModalPanel = undefined;
+        }
         resolve();
       });
     });
