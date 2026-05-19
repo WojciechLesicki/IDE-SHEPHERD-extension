@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { Logger } from '../../lib/logger';
 import { IDEStatusService } from '../../lib/services/ide-status-service';
+import { NotificationService } from '../../lib/services/notification-service';
 import { SecurityEvent, IoC } from '../../lib/events/sec-events';
 import { FsEvent } from '../../lib/events/fs-events';
 import { WorkspaceInfo, ExtensionInfo } from '../../lib/events/ext-events';
@@ -102,14 +103,13 @@ export class WorkspaceWatcher {
 
     await IDEStatusService.emitSecurityEvent(securityEvent);
 
-    const timingMsg = isStaticScan ? 'was found in your workspace upon opening' : 'was just dropped in your workspace';
-    const message = `CRITICAL ALERT: IDE-SHEPHERD detected a malicious Git hook that ${timingMsg}!\nFile: ${filePath}\nRule: ${rule.name}`;
-
     if (this.extensionMode === vscode.ExtensionMode.Test) {
-      Logger.warn(message);
+      Logger.warn(
+        `CRITICAL ALERT: IDE-SHEPHERD detected a malicious Git hook in ${filePath} (Rule: ${rule.name})`,
+      );
       return;
     }
 
-    void vscode.window.showErrorMessage(message, { modal: true }).then(undefined, () => undefined);
+    await NotificationService.showMaliciousGitHookAlert(securityEvent, isStaticScan);
   }
 }

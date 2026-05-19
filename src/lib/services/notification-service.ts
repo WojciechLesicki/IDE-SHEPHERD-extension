@@ -85,6 +85,30 @@ export class NotificationService {
     await this.showCustomModal(title, content, identifier, isWorkspace);
   }
 
+  /** Git-hook static scan / file watch — same webview modal as runtime blocking alerts. */
+  static async showMaliciousGitHookAlert(securityEvent: SecurityEvent, foundOnOpen: boolean): Promise<void> {
+    const timing = foundOnOpen ? 'found in your workspace upon opening' : 'just dropped in your workspace';
+
+    const title = '!!! Security Policy: Malicious Git Hook Detected';
+
+    let content =
+      `IDE Shepherd <bold>DETECTED</bold> a malicious Git hook that was ${timing}.<br><br>` +
+      `<strong>CRITICAL ALERT:</strong> A suspicious git hook may execute code if you commit or run npm scripts.<br><br>`;
+
+    if (securityEvent.workspace) {
+      content += `<strong>WORKSPACE:</strong> <bold>${securityEvent.workspace.name}</bold><br>`;
+      content += `<strong>PATH:</strong> ${securityEvent.workspace.path}<br><br>`;
+    }
+
+    const primaryIoC = securityEvent.getPrimaryIoC();
+    content += `<strong>FILE:</strong><br><code>${primaryIoC.finding}</code><br><br>`;
+    content += `<strong>SUMMARY:</strong><br>${securityEvent.getSummary().replace(/\n/g, '<br>')}<br><br>`;
+    content += `<strong>ACTION:</strong> Review the hook file before committing. Trust this workspace only if you have audited the repository.`;
+
+    const identifier = securityEvent.workspace?.path;
+    await this.showCustomModal(title, content, identifier, true);
+  }
+
   private static async showCustomModal(
     title: string,
     content: string,
