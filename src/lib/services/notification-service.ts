@@ -67,8 +67,14 @@ export class NotificationService {
 
     if (isGitHook) {
       content =
-        `IDE Shepherd <bold>DETECTED</bold> a malicious git hook in this workspace.<br><br>` +
-        `A suspicious hook may run if you commit or execute npm scripts in this repository.<br><br>`;
+        `IDE Shepherd <bold>detected</bold> a suspicious git hook in this workspace repository.<br><br>` +
+        `<strong>SCOPE:</strong> This alert concerns <bold>repository files</bold> (git hooks), ` +
+        `not a VS Code/Cursor <bold>extension</bold>. Extension allowlist and runtime blocking policies do not apply here.<br><br>` +
+        `<strong>MODE:</strong> <bold>Detection only</bold> — the hook was <bold>not blocked</bold>. ` +
+        `Commits, <code>npm install</code>, and git/terminal processes can still execute it.<br><br>` +
+        `<strong>CTI:</strong> Based on current threat intelligence (e.g. DPRK Contagious Interview / Lazarus git-hook campaigns), ` +
+        `patterns like this are often associated with <bold>malicious repositories</bold>. ` +
+        `Confirm that you fully trust this repo and understand what the hook does before committing or running install scripts.<br><br>`;
     } else {
       content = `A(n) <bold>${type}</bold> operation has been <bold>BLOCKED</bold> by IDE Shepherd's security policy.<br><br>`;
     }
@@ -97,7 +103,7 @@ export class NotificationService {
 
     if (isGitHook) {
       content +=
-        '<strong>ACTION:</strong> Review the hook file before committing. Use <em>Ignore &amp; Allow</em> only if you have audited this repository.';
+        '<strong>ACTION:</strong> Inspect the hook file below. Use <em>Ignore &amp; Allow</em> only if you have audited this repository and accept the risk.';
     } else {
       content += `<strong>ACTION:</strong> The ${getOperationTitle(type).toLowerCase()} was automatically blocked to protect your workspace.`;
     }
@@ -106,7 +112,10 @@ export class NotificationService {
       !isGitHook && resolvedExtension ? resolvedExtension.id : securityEvent.workspace?.path;
     const isWorkspace = isGitHook ? !!securityEvent.workspace : !resolvedExtension && !!securityEvent.workspace;
 
-    await this.showCustomModal(title, content, identifier, isWorkspace);
+    await this.showCustomModal(title, content, identifier, isWorkspace, {
+      dismissButtonLabel: isGitHook ? 'Dismiss alert' : 'Continue blocking',
+      isGitHookAlert: isGitHook,
+    });
   }
 
   /** Git-hook alerts — identical code path to other IDE Shepherd security modals. */
@@ -123,7 +132,10 @@ export class NotificationService {
     content: string,
     identifier?: string,
     isWorkspace: boolean = false,
+    options: { dismissButtonLabel?: string; isGitHookAlert?: boolean } = {},
   ): Promise<void> {
+    const dismissButtonLabel = options.dismissButtonLabel ?? 'Continue blocking';
+    const isGitHookAlert = options.isGitHookAlert ?? false;
     return new Promise((resolve) => {
       if (this.activeModalPanel) {
         this.activeModalPanel.dispose();
@@ -245,10 +257,20 @@ export class NotificationService {
                         <div class="title">${title}</div>
                         <div class="content">${content.replace(/\n/g, '<br>')}</div>
                         <div class="button-container">
-                            <button class="ok-button" onclick="dismissModal()">Continue blocking</button>
-                            ${identifier ? `<button class="ignore-button" onclick="ignoreItem()">${isWorkspace ? 'Trust this workspace' : 'Allow this extension'}</button>` : ''}
+                            <button class="ok-button" onclick="dismissModal()">${dismissButtonLabel}</button>
+                            ${
+                              identifier
+                                ? `<button class="ignore-button" onclick="ignoreItem()">${
+                                    isGitHookAlert
+                                      ? 'Ignore &amp; Allow'
+                                      : isWorkspace
+                                        ? 'Trust this workspace'
+                                        : 'Allow this extension'
+                                  }</button>`
+                                : ''
+                            }
                         </div>
-                        ${identifier && !isWorkspace ? '<p class="allow-caveat">Allows all future operations from this extension (network, process, file system, and tasks), not just this specific one.</p>' : ''}
+                        ${identifier && !isWorkspace && !isGitHookAlert ? '<p class="allow-caveat">Allows all future operations from this extension (network, process, file system, and tasks), not just this specific one.</p>' : ''}
                     </div>
                     <script>
                         const vscode = acquireVsCodeApi();
@@ -293,9 +315,10 @@ export class NotificationService {
               const sidebarService = SidebarService.getInstance();
               sidebarService.refreshAllowListView();
 
-              vscode.window.showInformationMessage(
-                `Workspace "${vscode.workspace.name}" has been added to the trusted list. Future task operations will be allowed.`,
-              );
+              const trustedMsg = isGitHookAlert
+                ? `Workspace "${vscode.workspace.name}" has been added to the trusted list. Future git-hook detection alerts for this folder may be suppressed.`
+                : `Workspace "${vscode.workspace.name}" has been added to the trusted list. Future task operations will be allowed.`;
+              vscode.window.showInformationMessage(trustedMsg);
             } else {
               // Handle extension allowlist
               const allowListService = AllowListService.getInstance();
