@@ -2,6 +2,8 @@
  * Simple notification service for showing VS Code warnings
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { SecurityEvent } from '../events/sec-events';
 import { AllowListService } from './allowlist-service';
@@ -103,18 +105,33 @@ export class NotificationService {
 
     if (isGitHook) {
       content +=
-        '<strong>ACTION:</strong> Inspect the hook file below. Use <em>Ignore &amp; Allow</em> only if you have audited this repository and accept the risk.';
+        '<strong>ACTION:</strong> Choose an option below: <em>Dismiss alert</em> keeps the file; ' +
+        '<em>Remove malicious hook</em> deletes the file; <em>Ignore &amp; Allow</em> trusts this workspace for future git-hook alerts.';
     } else {
       content += `<strong>ACTION:</strong> The ${getOperationTitle(type).toLowerCase()} was automatically blocked to protect your workspace.`;
     }
 
-    const identifier =
-      !isGitHook && resolvedExtension ? resolvedExtension.id : securityEvent.workspace?.path;
-    const isWorkspace = isGitHook ? !!securityEvent.workspace : !resolvedExtension && !!securityEvent.workspace;
+    let identifier: string | undefined;
+    let isWorkspace: boolean;
+
+    if (isGitHook) {
+      identifier = this.resolveWorkspaceTrustIdentifier(securityEvent.workspace?.path, target);
+      isWorkspace = !!identifier;
+    } else if (resolvedExtension) {
+      identifier = resolvedExtension.id;
+      isWorkspace = false;
+    } else if (securityEvent.workspace?.path) {
+      identifier = securityEvent.workspace.path;
+      isWorkspace = true;
+    } else {
+      identifier = undefined;
+      isWorkspace = false;
+    }
 
     await this.showCustomModal(title, content, identifier, isWorkspace, {
       dismissButtonLabel: isGitHook ? 'Dismiss alert' : 'Continue blocking',
       isGitHookAlert: isGitHook,
+      hookFilePath: isGitHook ? target : undefined,
     });
   }
 
@@ -127,15 +144,70 @@ export class NotificationService {
     );
   }
 
+  private static resolveWorkspaceTrustIdentifier(
+    workspacePath: string | undefined,
+    hookFilePath: string | undefined,
+  ): string | undefined {
+    if (workspacePath) {
+      return workspacePath;
+    }
+    if (!hookFilePath) {
+      return undefined;
+    }
+    const normalizedHook = hookFilePath.replace(/\\/g, '/');
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const root = folder.uri.fsPath.replace(/\\/g, '/');
+      if (normalizedHook === root || normalizedHook.startsWith(`${root}/`)) {
+        return folder.uri.fsPath;
+      }
+    }
+    return undefined;
+  }
+
+  private static isDeletableGitHookPath(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/');
+    return /[/\\](\.git[/\\]hooks|\.githooks|\.husky)[/\\][^/]+$/i.test(normalized);
+  }
+
+  private static isPathInsideWorkspace(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/');
+    return (vscode.workspace.workspaceFolders ?? []).some((folder) => {
+      const root = folder.uri.fsPath.replace(/\\/g, '/');
+      return normalized === root || normalized.startsWith(`${root}/`);
+    });
+  }
+
+  private static async removeMaliciousGitHookFile(hookFilePath: string): Promise<void> {
+    if (!this.isDeletableGitHookPath(hookFilePath)) {
+      throw new Error('Path is not a recognized git hook location');
+    }
+    if (!this.isPathInsideWorkspace(hookFilePath)) {
+      throw new Error('Hook file is outside the open workspace');
+    }
+    if (!fs.existsSync(hookFilePath)) {
+      throw new Error('Hook file no longer exists');
+    }
+
+    const stat = fs.statSync(hookFilePath);
+    if (!stat.isFile()) {
+      throw new Error('Path is not a file');
+    }
+
+    await vscode.workspace.fs.delete(vscode.Uri.file(hookFilePath), { useTrash: true });
+    Logger.info(`NotificationService: Removed malicious git hook: ${hookFilePath}`);
+  }
+
   private static async showCustomModal(
     title: string,
     content: string,
     identifier?: string,
     isWorkspace: boolean = false,
-    options: { dismissButtonLabel?: string; isGitHookAlert?: boolean } = {},
+    options: { dismissButtonLabel?: string; isGitHookAlert?: boolean; hookFilePath?: string } = {},
   ): Promise<void> {
     const dismissButtonLabel = options.dismissButtonLabel ?? 'Continue blocking';
     const isGitHookAlert = options.isGitHookAlert ?? false;
+    const hookFilePath = options.hookFilePath;
+    const showGitHookActions = isGitHookAlert && !!hookFilePath;
     return new Promise((resolve) => {
       if (this.activeModalPanel) {
         this.activeModalPanel.dispose();
@@ -216,10 +288,11 @@ export class NotificationService {
                         }
                         .button-container {
                             display: flex;
+                            flex-wrap: wrap;
                             gap: 12px;
                             justify-content: center;
                         }
-                        .ok-button, .ignore-button {
+                        .ok-button, .ignore-button, .remove-button {
                             border: none;
                             padding: 8px 16px;
                             border-radius: 4px;
@@ -241,7 +314,15 @@ export class NotificationService {
                         .ignore-button:hover {
                             background: var(--vscode-button-secondaryHoverBackground);
                         }
-                        .ok-button:focus, .ignore-button:focus {
+                        .remove-button {
+                            background: var(--vscode-inputValidation-errorBackground);
+                            color: var(--vscode-inputValidation-errorForeground);
+                            border: 1px solid var(--vscode-inputValidation-errorBorder);
+                        }
+                        .remove-button:hover {
+                            opacity: 0.9;
+                        }
+                        .ok-button:focus, .ignore-button:focus, .remove-button:focus {
                             outline: 2px solid var(--vscode-focusBorder);
                         }
                         .allow-caveat {
@@ -259,15 +340,14 @@ export class NotificationService {
                         <div class="button-container">
                             <button class="ok-button" onclick="dismissModal()">${dismissButtonLabel}</button>
                             ${
-                              identifier
-                                ? `<button class="ignore-button" onclick="ignoreItem()">${
-                                    isGitHookAlert
-                                      ? 'Ignore &amp; Allow'
-                                      : isWorkspace
-                                        ? 'Trust this workspace'
-                                        : 'Allow this extension'
-                                  }</button>`
-                                : ''
+                              showGitHookActions
+                                ? `<button class="remove-button" onclick="removeHook()">Remove malicious hook</button>
+                            <button class="ignore-button" onclick="ignoreItem()">Ignore &amp; Allow</button>`
+                                : identifier
+                                  ? `<button class="ignore-button" onclick="ignoreItem()">${
+                                      isWorkspace ? 'Trust this workspace' : 'Allow this extension'
+                                    }</button>`
+                                  : ''
                             }
                         </div>
                         ${identifier && !isWorkspace && !isGitHookAlert ? '<p class="allow-caveat">Allows all future operations from this extension (network, process, file system, and tasks), not just this specific one.</p>' : ''}
@@ -281,6 +361,10 @@ export class NotificationService {
                         
                         function ignoreItem() {
                             vscode.postMessage({ command: 'ignore' });
+                        }
+
+                        function removeHook() {
+                            vscode.postMessage({ command: 'removeHook' });
                         }
                         
                         // Handle Escape key
@@ -300,6 +384,29 @@ export class NotificationService {
       // Handle messages from webview
       panel.webview.onDidReceiveMessage(async (message) => {
         if (message.command === 'dismiss') {
+          if (this.activeModalPanel === panel) {
+            this.activeModalPanel = undefined;
+          }
+          panel.dispose();
+          resolve();
+        } else if (message.command === 'removeHook' && hookFilePath) {
+          const hookName = path.basename(hookFilePath);
+          const confirm = await vscode.window.showWarningMessage(
+            `Delete suspicious git hook "${hookName}"?`,
+            { modal: true },
+            'Delete hook',
+          );
+          if (confirm !== 'Delete hook') {
+            return;
+          }
+          try {
+            await this.removeMaliciousGitHookFile(hookFilePath);
+            vscode.window.showInformationMessage(`Removed git hook: ${hookName}`);
+          } catch (error) {
+            Logger.error(`NotificationService: Failed to remove git hook`, error as Error);
+            vscode.window.showErrorMessage(`Failed to remove git hook: ${error}`);
+            return;
+          }
           if (this.activeModalPanel === panel) {
             this.activeModalPanel = undefined;
           }
