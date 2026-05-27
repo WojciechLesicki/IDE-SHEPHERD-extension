@@ -3,6 +3,7 @@ src/**
 
 # Test output
 out/test/**
+test.out
 
 # Build tooling
 tsconfig*.json

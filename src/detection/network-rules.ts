@@ -51,6 +51,19 @@ export const NETWORK_RULES: NetworkRule[] = [
     confidence: 1,
   },
 
+  // DPRK Contagious Interview / git-hook C2 (OpenSource Malware, 2026)
+  {
+    id: 'dprk_git_hook_c2',
+    name: 'DPRK Git Hook C2',
+    description:
+      'Request to Contagious Interview git-hook payload host (precommit.vercel.app — Lazarus/DPRK campaign)',
+    type: NetworkRuleType.URL,
+    target: Target.NETWORK,
+    severity: SeverityLevel.HIGH,
+    pattern: /precommit\.vercel\.app/i,
+    confidence: 1,
+  },
+
   // Malware Download Domain Rules
   {
     id: 'malware_download_domains',

@@ -487,6 +487,40 @@ suite('NetworkAnalyzer Tests', () => {
     });
   });
 
+  suite('DPRK Git Hook C2 (precommit.vercel.app)', () => {
+    test('should block request to precommit.vercel.app', () => {
+      const extensionInfo = createMockExtensionInfo('test.extension', true);
+      const event = new NetworkEvent(
+        'https',
+        'https://precommit.vercel.app/settings/linux?flag=5',
+        'request:pre',
+        __filename,
+        extensionInfo,
+      );
+
+      const result = analyzer.analyze(event);
+
+      expect(result!.verdict.allowed).to.be.false;
+      expect(result!.securityEvent!.iocs[0].rule).to.include('DPRK Git Hook C2');
+    });
+
+    test('should not flag unrelated vercel.app subdomains', () => {
+      const extensionInfo = createMockExtensionInfo('test.extension', true);
+      const event = new NetworkEvent(
+        'https',
+        'https://my-project.vercel.app/api',
+        'request:pre',
+        __filename,
+        extensionInfo,
+      );
+
+      const result = analyzer.analyze(event);
+
+      const iocRule = result!.securityEvent?.iocs[0]?.rule ?? '';
+      expect(iocRule).to.not.include('DPRK Git Hook C2');
+    });
+  });
+
   suite('Error Handling', () => {
     test('should handle exceptions gracefully', () => {
       const extensionInfo = createMockExtensionInfo('test.extension', true);

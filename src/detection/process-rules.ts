@@ -68,6 +68,19 @@ export const PROCESS_RULES: ProcessRule[] = [
     confidence: 0.95,
   },
 
+  // DPRK Contagious Interview git-hook C2 in shell/curl arguments
+  {
+    id: 'dprk_git_hook_c2_url',
+    name: 'DPRK Git Hook C2 URL',
+    description:
+      'Command references Contagious Interview git-hook C2 host (precommit.vercel.app)',
+    type: ProcessRuleType.COMMAND,
+    target: Target.PROCESS,
+    severity: SeverityLevel.HIGH,
+    commandPattern: /precommit\.vercel\.app/i,
+    confidence: 1,
+  },
+
   // Detached silent process — payload delivery pattern
   {
     id: 'detached_silent_process',

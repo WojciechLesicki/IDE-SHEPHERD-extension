@@ -1,8 +1,10 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { Logger } from '../../lib/logger';
 import { IDEStatusService } from '../../lib/services/ide-status-service';
 import { NotificationService } from '../../lib/services/notification-service';
+import { TrustedWorkspaceService } from '../../lib/services/trusted-workspace-service';
 import { SecurityEvent, IoC } from '../../lib/events/sec-events';
 import { FsEvent } from '../../lib/events/fs-events';
 import { WorkspaceInfo, ExtensionInfo } from '../../lib/events/ext-events';
@@ -79,13 +81,32 @@ export class WorkspaceWatcher {
     }
   }
 
+  /** Resolve the workspace folder root that contains `filePath` (supports multi-root). */
+  static resolveWorkspacePathForFile(filePath: string): string | undefined {
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const root = folder.uri.fsPath;
+      if (filePath === root || filePath.startsWith(`${root}${path.sep}`)) {
+        return root;
+      }
+    }
+    return undefined;
+  }
+
   private static async triggerSecurityEvent(match: HookScanMatch, isStaticScan: boolean): Promise<void> {
     const { filePath, rule } = match;
-    const workspaceName = vscode.workspace.name || 'Unknown Workspace';
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    const workspacePath = workspaceFolder?.uri.fsPath || '';
+    const workspacePath =
+      WorkspaceWatcher.resolveWorkspacePathForFile(filePath) ??
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+      '';
+    const workspaceName =
+      vscode.workspace.workspaceFolders?.find((f) => f.uri.fsPath === workspacePath)?.name ??
+      vscode.workspace.name ??
+      'Unknown Workspace';
 
-    const workspaceInfo = new WorkspaceInfo(workspaceName, workspacePath, false);
+    const trustedWorkspaceService = TrustedWorkspaceService.getInstance();
+    const isTrusted = workspacePath ? trustedWorkspaceService.isTrusted(workspacePath) : false;
+
+    const workspaceInfo = new WorkspaceInfo(workspaceName, workspacePath, isTrusted);
 
     const eventTypeLabel = isStaticScan ? 'WorkspaceStaticScan' : 'WorkspaceFileWatch';
     const fsEvent = new FsEvent(filePath, 'write', eventTypeLabel, new ExtensionInfo('workspace.terminal', false));
@@ -106,6 +127,13 @@ export class WorkspaceWatcher {
     if (this.extensionMode === vscode.ExtensionMode.Test) {
       Logger.warn(
         `CRITICAL ALERT: IDE-SHEPHERD detected a malicious Git hook in ${filePath} (Rule: ${rule.name})`,
+      );
+      return;
+    }
+
+    if (isTrusted) {
+      Logger.info(
+        `Workspace Watcher: git-hook alert suppressed — workspace is trusted: ${workspacePath}`,
       );
       return;
     }

