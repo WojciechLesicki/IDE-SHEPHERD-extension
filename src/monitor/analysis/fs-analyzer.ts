@@ -5,6 +5,7 @@ import { IDEStatusService } from '../../lib/services/ide-status-service';
 import { AnalysisResult } from './analyzer';
 import { FsEvent } from '../../lib/events/fs-events';
 import { FS_RULES, FsRule } from '../../detection/fs-rules';
+import { GIT_HOOK_MALICIOUS_RULE_ID, isMaliciousGitHookContent } from './hook-scanner';
 
 export class FsAnalyzer {
   analyze(ev: FsEvent): AnalysisResult | undefined {
@@ -57,15 +58,21 @@ export class FsAnalyzer {
       return new AnalysisResult();
     }
 
-    if (rule.contentPattern && (ev.operation === 'write' || ev.operation === 'append')) {
-      try {
-        const content = fs.readFileSync(ev.path, 'utf8');
-        if (!rule.contentPattern.test(content)) {
+    if (ev.operation === 'write' || ev.operation === 'append') {
+      if (rule.id === GIT_HOOK_MALICIOUS_RULE_ID || rule.contentPattern) {
+        try {
+          const content = fs.readFileSync(ev.path, 'utf8');
+          const contentMatches =
+            rule.id === GIT_HOOK_MALICIOUS_RULE_ID
+              ? isMaliciousGitHookContent(content)
+              : rule.contentPattern!.test(content);
+          if (!contentMatches) {
+            return new AnalysisResult();
+          }
+        } catch (err) {
+          Logger.error(`FsAnalyzer: Failed to read file content for contentPattern check: ${ev.path}`, err as Error);
           return new AnalysisResult();
         }
-      } catch (err) {
-        Logger.error(`FsAnalyzer: Failed to read file content for contentPattern check: ${ev.path}`, err as Error);
-        return new AnalysisResult();
       }
     }
 

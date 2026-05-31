@@ -5,6 +5,28 @@ import { FS_RULES, FsRule, FsRuleType } from '../../detection/fs-rules';
 /** Hook script names targeted by the DPRK Contagious Interview / git-hooks campaign. */
 export const HOOK_SCRIPT_NAMES = ['pre-commit', 'post-checkout'] as const;
 
+export const GIT_HOOK_MALICIOUS_RULE_ID = 'write_git_hooks_malicious';
+
+/** Network download primitive in a hook script. */
+const GIT_HOOK_DOWNLOADER_PATTERN = /\b(curl|wget|Invoke-WebRequest)\b/i;
+
+/** Pipe-to-shell execution (Contagious Interview TTP). */
+const GIT_HOOK_PIPE_TO_SHELL_PATTERN = /\|\s*(sh|bash|zsh|cmd)\b|powershell\s+-/i;
+
+/** Known campaign C2 host in hook file content. */
+const GIT_HOOK_KNOWN_C2_PATTERN = /precommit\.vercel\.app/i;
+
+/**
+ * Dual-signal content check for malicious git hooks (reduces FP vs curl-only docs).
+ * Matches when (downloader + pipe-to-shell) OR known campaign C2 host is present.
+ */
+export function isMaliciousGitHookContent(content: string): boolean {
+  if (GIT_HOOK_KNOWN_C2_PATTERN.test(content)) {
+    return true;
+  }
+  return GIT_HOOK_DOWNLOADER_PATTERN.test(content) && GIT_HOOK_PIPE_TO_SHELL_PATTERN.test(content);
+}
+
 export interface HookScanMatch {
   filePath: string;
   rule: FsRule;
@@ -22,17 +44,23 @@ export function matchHookFile(filePath: string, content: string): HookScanMatch 
     if (rule.type !== FsRuleType.WRITE) {
       continue;
     }
-    if (!rule.contentPattern) {
-      continue;
-    }
     if (!rule.operations.includes('write')) {
       continue;
     }
     if (!rule.pathPattern.test(normalizedPath)) {
       continue;
     }
-    if (!rule.contentPattern.test(content)) {
-      continue;
+    if (rule.id === GIT_HOOK_MALICIOUS_RULE_ID) {
+      if (!isMaliciousGitHookContent(content)) {
+        continue;
+      }
+    } else {
+      if (!rule.contentPattern) {
+        continue;
+      }
+      if (!rule.contentPattern.test(content)) {
+        continue;
+      }
     }
 
     return { filePath, rule, content };

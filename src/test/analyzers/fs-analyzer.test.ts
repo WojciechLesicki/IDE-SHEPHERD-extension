@@ -475,6 +475,13 @@ suite('FsAnalyzer Tests', () => {
       expect(r!.verdict.allowed).to.be.true;
     });
 
+    test('should NOT detect curl-only hook without pipe-to-shell', () => {
+      fsStub.returns('curl -s https://example.com/readme');
+      const r = analyzer.analyze(makeEvent('/home/user/project/.husky/pre-commit', 'write'));
+
+      expect(r!.verdict.allowed).to.be.true;
+    });
+
     test('should detect modification of core.hooksPath in .git/config', () => {
       fsStub.returns('[core]\n\thooksPath = .githooks\n');
       const r = analyzer.analyze(makeEvent('/home/user/project/.git/config', 'write'));

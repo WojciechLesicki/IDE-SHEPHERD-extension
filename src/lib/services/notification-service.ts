@@ -10,6 +10,7 @@ import { AllowListService } from './allowlist-service';
 import { TrustedWorkspaceService } from './trusted-workspace-service';
 import { SidebarService } from './sidebar-service';
 import { Logger } from '../logger';
+import { GitHookAlertDedup } from '../../monitor/analysis/git-hook-alert-dedup';
 
 export enum BlockedOperationType {
   REQUEST = 'request',
@@ -137,11 +138,13 @@ export class NotificationService {
 
   /** Git-hook alerts — identical code path to other IDE Shepherd security modals. */
   static async showMaliciousGitHookAlert(securityEvent: SecurityEvent, _foundOnOpen: boolean): Promise<void> {
-    await this.showSecurityBlockingInfo(
-      securityEvent.getPrimaryIoC().finding,
-      securityEvent,
-      BlockedOperationType.GIT_HOOK,
-    );
+    const hookFilePath = securityEvent.getPrimaryIoC().finding;
+    if (!GitHookAlertDedup.shouldShowModal(hookFilePath)) {
+      Logger.info(`NotificationService: git-hook modal suppressed (dedup): ${hookFilePath}`);
+      return;
+    }
+    GitHookAlertDedup.markModalShown(hookFilePath);
+    await this.showSecurityBlockingInfo(hookFilePath, securityEvent, BlockedOperationType.GIT_HOOK);
   }
 
   private static resolveWorkspaceTrustIdentifier(
@@ -384,6 +387,9 @@ export class NotificationService {
       // Handle messages from webview
       panel.webview.onDidReceiveMessage(async (message) => {
         if (message.command === 'dismiss') {
+          if (isGitHookAlert && hookFilePath) {
+            GitHookAlertDedup.suppress(hookFilePath);
+          }
           if (this.activeModalPanel === panel) {
             this.activeModalPanel = undefined;
           }
@@ -401,6 +407,7 @@ export class NotificationService {
           }
           try {
             await this.removeMaliciousGitHookFile(hookFilePath);
+            GitHookAlertDedup.suppress(hookFilePath);
             vscode.window.showInformationMessage(`Removed git hook: ${hookName}`);
           } catch (error) {
             Logger.error(`NotificationService: Failed to remove git hook`, error as Error);
@@ -414,6 +421,9 @@ export class NotificationService {
           resolve();
         } else if (message.command === 'ignore' && identifier) {
           try {
+            if (isGitHookAlert && hookFilePath) {
+              GitHookAlertDedup.suppress(hookFilePath);
+            }
             if (isWorkspace) {
               const trustedWorkspaceService = TrustedWorkspaceService.getInstance();
               await trustedWorkspaceService.addToTrustedWorkspaces(identifier);

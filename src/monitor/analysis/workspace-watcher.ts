@@ -9,13 +9,25 @@ import { SecurityEvent, IoC } from '../../lib/events/sec-events';
 import { FsEvent } from '../../lib/events/fs-events';
 import { WorkspaceInfo, ExtensionInfo } from '../../lib/events/ext-events';
 import { HookScanMatch, matchHookFile, scanWorkspaceRoot } from './hook-scanner';
+import { GitHookAlertDedup } from './git-hook-alert-dedup';
 
 export class WorkspaceWatcher {
   private static watchers: vscode.FileSystemWatcher[] = [];
   private static extensionMode: vscode.ExtensionMode = vscode.ExtensionMode.Production;
 
+  /** Runtime opt-in from Settings (`ide-shepherd.gitHookAdvisory.enabled`, default false). */
+  static isGitHookAdvisoryEnabled(): boolean {
+    return vscode.workspace.getConfiguration('ide-shepherd.gitHookAdvisory').get<boolean>('enabled') ?? false;
+  }
+
   public static activate(context: vscode.ExtensionContext): void {
     this.extensionMode = context.extensionMode;
+
+    if (!this.isGitHookAdvisoryEnabled()) {
+      Logger.info('Workspace Watcher: git-hook advisory disabled (gitHookAdvisory.enabled=false)');
+      return;
+    }
+
     Logger.info('Activating Workspace Watcher for Git/Husky hooks...');
 
     // Best-effort live watch: VS Code ignores most of .git/ via files.watcherExclude.
@@ -44,6 +56,10 @@ export class WorkspaceWatcher {
   }
 
   private static async scanAllWorkspaceHooks(isStaticScan: boolean): Promise<void> {
+    if (!this.isGitHookAdvisoryEnabled()) {
+      return;
+    }
+
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
       return;
@@ -62,6 +78,10 @@ export class WorkspaceWatcher {
   }
 
   private static async handleFileChange(filePath: string, isStaticScan: boolean): Promise<void> {
+    if (!this.isGitHookAdvisoryEnabled()) {
+      return;
+    }
+
     try {
       if (!fs.existsSync(filePath)) {
         return;
@@ -125,16 +145,17 @@ export class WorkspaceWatcher {
     await IDEStatusService.emitSecurityEvent(securityEvent);
 
     if (this.extensionMode === vscode.ExtensionMode.Test) {
-      Logger.warn(
-        `CRITICAL ALERT: IDE-SHEPHERD detected a malicious Git hook in ${filePath} (Rule: ${rule.name})`,
-      );
+      Logger.warn(`CRITICAL ALERT: IDE-SHEPHERD detected a malicious Git hook in ${filePath} (Rule: ${rule.name})`);
       return;
     }
 
     if (isTrusted) {
-      Logger.info(
-        `Workspace Watcher: git-hook alert suppressed — workspace is trusted: ${workspacePath}`,
-      );
+      Logger.info(`Workspace Watcher: git-hook alert suppressed — workspace is trusted: ${workspacePath}`);
+      return;
+    }
+
+    if (!GitHookAlertDedup.shouldShowModal(filePath)) {
+      Logger.info(`Workspace Watcher: git-hook modal suppressed (dedup): ${filePath}`);
       return;
     }
 

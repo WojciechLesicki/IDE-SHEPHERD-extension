@@ -21,6 +21,10 @@ lint-staged.config.*
 .gitignore
 .gitattributes
 
+# Local-only (not for distribution)
+IMPLEMENTATION-PLAN.local.md
+.whats-new-shown
+
 # Dev IDE config
 .vscode/**
 .vscode-test/**
