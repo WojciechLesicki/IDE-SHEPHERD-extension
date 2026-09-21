@@ -93,19 +93,21 @@ export const TASK_RULES: TaskRule[] = [
    * a file whose extension declares non-code content (font, image, PDF, wasm, etc.),
    * e.g. `node ./public/fonts/fa-solid-400.woff2`. Legitimate tasks never invoke an
    * interpreter on a font/image asset — this is masquerading a script payload as a
-   * binary asset to evade extension-based filtering.
+   * binary asset to evade extension-based filtering. `.dict` covers the Malicious
+   * Dictionary campaign's fallback payload disguised as a SpellRight dictionary file.
    * See: https://opensourcemalware.com/blog/polinrider-npm-case-study-dprk-attack
+   * See: https://opensourcemalware.com/blog/how-malware-abuses-npm-lifecycle-scripts-and-vs-code-tasks
    */
   {
     id: 'task_interpreter_nonscript_ext',
     name: 'Task: Interpreter Executed Against Non-Script File',
     description:
-      'Task runs an interpreter (node, python, ruby, perl, bash, sh, pwsh, powershell) directly against a file with a non-script extension (font, image, wasm, pdf, etc.) — a masquerading pattern used to disguise a script payload as a binary asset',
+      'Task runs an interpreter (node, python, ruby, perl, bash, sh, pwsh, powershell) directly against a file with a non-script extension (font, image, wasm, pdf, dict, etc.) — a masquerading pattern used to disguise a script payload as a binary asset',
     type: TaskRuleType.REMOTE_SCRIPT,
     target: Target.WORKSPACE,
     severity: SeverityLevel.HIGH,
     commandPattern:
-      /\b(?:node|python3?|ruby|perl|bash|sh|pwsh|powershell)\s+\S*\.(?:woff2?|ttf|otf|eot|png|jpe?g|gif|ico|bmp|svg|pdf|wasm|dat)\b/i,
+      /\b(?:node|python3?|ruby|perl|bash|sh|pwsh|powershell)\s+\S*\.(?:woff2?|ttf|otf|eot|png|jpe?g|gif|ico|bmp|svg|pdf|wasm|dat|dict)\b/i,
     confidence: 0.95,
   },
 

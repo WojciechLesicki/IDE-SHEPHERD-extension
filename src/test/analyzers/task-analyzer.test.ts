@@ -227,6 +227,21 @@ suite('TaskScanner Tests', () => {
       expect(rule!.commandPattern.test('pwsh ./bin/module.wasm')).to.be.true;
     });
 
+    test('should detect node run against a .dict file (Malicious Dictionary campaign fallback)', () => {
+      const rule = TASK_RULES.find((r) => r.id === 'task_interpreter_nonscript_ext');
+      expect(rule!.commandPattern.test('node ./spellright.dict')).to.be.true;
+    });
+
+    test('should detect the real-world cross-platform command-chain form', () => {
+      // From a live compromised repo, as documented at
+      // https://opensourcemalware.com/blog/how-malware-abuses-npm-lifecycle-scripts-and-vs-code-tasks
+      const rule = TASK_RULES.find((r) => r.id === 'task_interpreter_nonscript_ext');
+      const realWorldCommand =
+        '(command -v node >/dev/null 2>&1 && node ./public/fonts/fa-solid-400.woff2) || ' +
+        "(where node >nul 2>&1 && node ./public/fonts/fa-solid-400.woff2) || echo ''";
+      expect(rule!.commandPattern.test(realWorldCommand)).to.be.true;
+    });
+
     test('should be case insensitive', () => {
       const rule = TASK_RULES.find((r) => r.id === 'task_interpreter_nonscript_ext');
       expect(rule!.commandPattern.test('NODE ./public/fonts/fa-solid-400.WOFF2')).to.be.true;
